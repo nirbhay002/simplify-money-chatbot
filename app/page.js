@@ -1,5 +1,3 @@
-// File: app/page.js (with Auto-Scrolling Transcript)
-
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -19,13 +17,12 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // State and refs for speech recognition
+  // State and refs for advanced speech recognition
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
   const isListeningRef = useRef(false);
   const transcriptRef = useRef(""); 
   const finalizedTranscriptRef = useRef("");
-  const inputRef = useRef(null); // New ref for the input element
 
   // --- Core Chat & Speech Functions ---
   const speak = (text, lang = 'en-IN') => {
@@ -55,13 +52,26 @@ export default function Home() {
     setUserInput('');
 
     try {
+      // --- THE FIX IS HERE ---
+      // Create a "sanitized" version of the history for the API call,
+      // removing any extra properties like "lang".
+      const sanitizedHistory = newHistory.map(msg => ({
+        role: msg.role,
+        parts: [{ text: msg.parts[0].text }] // Only include the 'text' property
+      }));
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ history: chatHistory, message: message }),
+        body: JSON.stringify({ 
+            // Send the sanitized history, not the original
+            history: sanitizedHistory, 
+            message: message 
+        }),
       });
       const data = await response.json();
       if (data.reply && data.language_code) {
+        // We still store the 'lang' property in our local state for the UI
         setChatHistory([...newHistory, { role: 'model', parts: [{ text: data.reply, lang: data.language_code }] }]);
         speak(data.reply, data.language_code);
       }
@@ -71,21 +81,12 @@ export default function Home() {
       setIsLoading(false);
     }
   };
-
+  
   // --- Advanced Speech Recognition Logic ---
   useEffect(() => {
     isListeningRef.current = isListening;
     transcriptRef.current = userInput;
   }, [isListening, userInput]);
-
-  // --- NEW: useEffect for Auto-Scrolling the Input ---
-  useEffect(() => {
-    if (isListening && inputRef.current) {
-      // When listening and the transcript updates, scroll the input to the end
-      const inputElement = inputRef.current;
-      inputElement.scrollLeft = inputElement.scrollWidth;
-    }
-  }, [userInput, isListening]); // Run this effect whenever the transcript or listening state changes
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -198,17 +199,7 @@ export default function Home() {
 
       <footer className="p-4 bg-white border-t sticky bottom-0">
         <div className="flex items-center max-w-2xl mx-auto">
-          {/* --- The ref is attached here --- */}
-          <input 
-            ref={inputRef}
-            type="text" 
-            value={userInput} 
-            onChange={(e) => setUserInput(e.target.value)} 
-            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(userInput)} 
-            className="flex-1 p-3 border rounded-l-full focus:outline-none focus:ring-2 focus:ring-blue-500" 
-            placeholder="Ask or click the mic to speak..." 
-            disabled={isLoading || isListening}
-          />
+          <input type="text" value={userInput} onChange={(e) => setUserInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(userInput)} className="flex-1 p-3 border rounded-l-full focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ask or click the mic to speak..." disabled={isLoading || isListening}/>
           <button
             onClick={handleMicClick}
             className={`p-3 px-4 rounded-none border-y border-l-0 border-gray-200 text-white text-2xl transition-transform ${isListening ? 'bg-red-500 animate-pulse' : 'bg-blue-600'} disabled:bg-gray-400`}
