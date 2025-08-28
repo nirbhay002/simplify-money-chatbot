@@ -1,4 +1,4 @@
-// File: app/page.js (with improved mobile event handling)
+// File: app/page.js (with Hold-to-Record for Mobile)
 
 'use client';
 
@@ -18,15 +18,17 @@ export default function Home() {
   const [chatHistory, setChatHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // State and refs for advanced speech recognition
+  // State and refs for speech recognition
   const [isListening, setIsListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   const recognitionRef = useRef(null);
   const isListeningRef = useRef(false);
   const transcriptRef = useRef(""); 
-  const finalizedTranscriptRef = useRef(""); // Exclusively for the mobile logic
+  const finalizedTranscriptRef = useRef("");
+  const isHeldRef = useRef(false); // To track if the button is being held on mobile
+  const touchStartXRef = useRef(0); // To detect swipe-to-cancel
 
-  // --- Core Chat Functions ---
+  // --- Core Chat Functions (Unchanged) ---
   const speak = (text, lang = 'en-IN') => {
     window.speechSynthesis.cancel(); 
     const utterance = new SpeechSynthesisUtterance(text);
@@ -63,7 +65,7 @@ export default function Home() {
     }
   };
   
-  // --- Advanced Speech Recognition Logic ---
+  // --- Speech Recognition Logic (Unchanged) ---
   useEffect(() => {
     isListeningRef.current = isListening;
     transcriptRef.current = liveTranscript;
@@ -78,39 +80,36 @@ export default function Home() {
     recog.interimResults = true;
     
     const isMobile = isMobileDevice();
-
     if (isMobile) {
-      console.log("Mobile device detected. Using mobile-specific logic.");
       recog.onresult = (event) => {
-        let interimTranscript = "";
+        let interim = "";
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          interimTranscript += event.results[i][0].transcript;
+          interim += event.results[i][0].transcript;
         }
-        setLiveTranscript(finalizedTranscriptRef.current + interimTranscript);
+        setLiveTranscript(finalizedTranscriptRef.current + interim);
       };
       recog.onend = () => {
         if (isListeningRef.current) {
           finalizedTranscriptRef.current = transcriptRef.current + " ";
-          console.log("Mobile timeout detected, restarting...");
           recognitionRef.current.start();
         }
       };
     } else {
-      console.log("Desktop device detected. Using desktop-specific logic.");
       recog.onresult = (event) => {
-        let fullTranscript = "";
+        let full = "";
         for (let i = 0; i < event.results.length; i++) {
-          fullTranscript += event.results[i][0].transcript;
+          full += event.results[i][0].transcript;
         }
-        setLiveTranscript(fullTranscript);
+        setLiveTranscript(full);
       };
       recog.onend = () => setIsListening(false);
     }
     recognitionRef.current = recog;
   }, []);
 
+  // --- Control Functions (start, stop, and new cancel function) ---
   const startListening = () => {
-    if (recognitionRef.current) {
+    if (recognitionRef.current && !isListening) {
       setLiveTranscript(""); 
       finalizedTranscriptRef.current = "";
       recognitionRef.current.lang = 'en-IN';
@@ -120,7 +119,7 @@ export default function Home() {
   };
 
   const stopListening = () => {
-    if (recognitionRef.current) {
+    if (recognitionRef.current && isListening) {
       setIsListening(false); 
       recognitionRef.current.stop();
       const finalTranscript = transcriptRef.current.trim();
@@ -131,9 +130,20 @@ export default function Home() {
       finalizedTranscriptRef.current = "";
     }
   };
+
+  const cancelListening = () => {
+    if (recognitionRef.current && isListening) {
+      setIsListening(false);
+      recognitionRef.current.abort(); // Discard results
+      setLiveTranscript("");
+      finalizedTranscriptRef.current = "";
+    }
+  }
+
+  // --- Event Handlers for Desktop and Mobile ---
   
+  // For Desktop: A simple toggle
   const handleMicClick = (event) => {
-    // Prevent default behavior to avoid double-firing on mobile
     event.preventDefault();
     if (isListening) {
         stopListening();
@@ -142,6 +152,32 @@ export default function Home() {
     }
   }
 
+  // For Mobile: Hold, Release, and Swipe
+  const handleTouchStart = (e) => {
+    e.preventDefault();
+    isHeldRef.current = true;
+    touchStartXRef.current = e.touches[0].clientX;
+    startListening();
+  };
+
+  const handleTouchEnd = (e) => {
+    e.preventDefault();
+    if (isHeldRef.current) {
+      stopListening();
+    }
+    isHeldRef.current = false;
+  };
+  
+  const handleTouchMove = (e) => {
+    if (!isHeldRef.current) return;
+    const touchX = e.touches[0].clientX;
+    const deltaX = touchStartXRef.current - touchX;
+    if (deltaX > 50) { // Swiped left by 50px
+      cancelListening();
+      isHeldRef.current = false;
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-100 font-sans">
       <header className="bg-blue-600 text-white p-4 text-center shadow-md">
@@ -149,12 +185,16 @@ export default function Home() {
         <p className="text-sm sm:text-base">Your AI Financial Friend, Kuber.AI</p>
       </header>
 
-      {isListening && (
-        <div className="w-full max-w-2xl mx-auto p-4 bg-white shadow-md rounded-b-lg border-t">
-          <p className="font-medium text-gray-700 text-lg text-center">Listening...</p>
-          <div className="mt-2 p-4 border-2 border-dashed rounded-lg min-h-[100px] text-gray-800">
-            {liveTranscript || "Speak now..."}
-          </div>
+      {(isListening && isMobileDevice()) && (
+        <div className="fixed inset-x-0 bottom-24 flex justify-center items-center text-gray-500 animate-pulse">
+            <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
+            Swipe left to cancel
+        </div>
+      )}
+
+      {isListening && !isMobileDevice() && (
+        <div className="w-full max-w-2xl mx-auto p-2 bg-white shadow-md rounded-b-lg border-t">
+          <p className="font-medium text-gray-700 text-base text-center">Listening... Click ⏹️ to stop.</p>
         </div>
       )}
 
@@ -169,14 +209,15 @@ export default function Home() {
         {isLoading && ( <div className="flex justify-start"> <div className="max-w-lg p-3 rounded-lg bg-white text-black shadow"> <p className="animate-pulse">Kuber is thinking...</p> </div> </div> )}
       </main>
 
-      <footer className="p-4 bg-white border-t sticky bottom-0">
+      {/* Footer now handles touch move and end for swipe-to-cancel */}
+      <footer className="p-4 bg-white border-t sticky bottom-0" onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
         <div className="flex items-center max-w-2xl mx-auto">
-          <input type="text" value={userInput} onChange={(e) => setUserInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(userInput)} className="flex-1 p-3 border rounded-l-full focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ask about saving, investing..." disabled={isListening || isLoading} />
-          {/* --- BUTTON CHANGE IS HERE --- */}
+          <input type="text" value={isListening ? liveTranscript : userInput} onChange={(e) => setUserInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(userInput)} className="flex-1 p-3 border rounded-l-full focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ask or hold the mic to speak..." disabled={isLoading} readOnly={isListening} />
+          {/* --- BUTTON USES DIFFERENT EVENTS FOR DESKTOP AND MOBILE --- */}
           <button
             onMouseDown={handleMicClick} // For desktop clicks
-            onTouchStart={handleMicClick} // For mobile taps
-            className={`p-3 px-4 rounded-r-full text-white text-2xl transition-colors ${isListening ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'} disabled:bg-gray-400`}
+            onTouchStart={handleTouchStart} // For mobile hold
+            className={`p-3 px-4 rounded-r-full text-white text-2xl transition-colors ${isListening ? 'bg-red-500 hover:bg-red-600 scale-110' : 'bg-blue-600 hover:bg-blue-700'} disabled:bg-gray-400`}
             disabled={isLoading}
           >
             {isListening ? '⏹️' : '🎤'}
