@@ -1,4 +1,4 @@
-// File: app/page.js (Final Version with Corrected Click/Tap Logic)
+// File: app/page.js (with Auto-Scrolling Transcript)
 
 'use client';
 
@@ -19,12 +19,13 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // State and refs for advanced speech recognition
+  // State and refs for speech recognition
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
   const isListeningRef = useRef(false);
   const transcriptRef = useRef(""); 
   const finalizedTranscriptRef = useRef("");
+  const inputRef = useRef(null); // New ref for the input element
 
   // --- Core Chat & Speech Functions ---
   const speak = (text, lang = 'en-IN') => {
@@ -76,6 +77,15 @@ export default function Home() {
     isListeningRef.current = isListening;
     transcriptRef.current = userInput;
   }, [isListening, userInput]);
+
+  // --- NEW: useEffect for Auto-Scrolling the Input ---
+  useEffect(() => {
+    if (isListening && inputRef.current) {
+      // When listening and the transcript updates, scroll the input to the end
+      const inputElement = inputRef.current;
+      inputElement.scrollLeft = inputElement.scrollWidth;
+    }
+  }, [userInput, isListening]); // Run this effect whenever the transcript or listening state changes
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -142,8 +152,7 @@ export default function Home() {
       finalizedTranscriptRef.current = "";
     }
   };
-
-  // --- THE FIX IS HERE: SIMPLIFIED HANDLER ---
+  
   const handleMicClick = () => {
     if (isListening) {
         stopListeningAndSend();
@@ -189,8 +198,17 @@ export default function Home() {
 
       <footer className="p-4 bg-white border-t sticky bottom-0">
         <div className="flex items-center max-w-2xl mx-auto">
-          <input type="text" value={userInput} onChange={(e) => setUserInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(userInput)} className="flex-1 p-3 border rounded-l-full focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ask or click the mic to speak..." disabled={isLoading || isListening}/>
-          {/* --- THE FIX IS HERE: USING A SINGLE onClick --- */}
+          {/* --- The ref is attached here --- */}
+          <input 
+            ref={inputRef}
+            type="text" 
+            value={userInput} 
+            onChange={(e) => setUserInput(e.target.value)} 
+            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(userInput)} 
+            className="flex-1 p-3 border rounded-l-full focus:outline-none focus:ring-2 focus:ring-blue-500" 
+            placeholder="Ask or click the mic to speak..." 
+            disabled={isLoading || isListening}
+          />
           <button
             onClick={handleMicClick}
             className={`p-3 px-4 rounded-none border-y border-l-0 border-gray-200 text-white text-2xl transition-transform ${isListening ? 'bg-red-500 animate-pulse' : 'bg-blue-600'} disabled:bg-gray-400`}
