@@ -1,4 +1,4 @@
-// File: app/page.js (Final Version with all features)
+// File: app/page.js (Final Version with Device-Specific Logic)
 
 'use client';
 
@@ -19,15 +19,12 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // State and refs for speech recognition
+  // State and refs for advanced speech recognition
   const [isListening, setIsListening] = useState(false);
-  const [liveTranscript, setLiveTranscript] = useState("");
   const recognitionRef = useRef(null);
-  const isListeningRef = useRef(false);
+  const isListeningRef = useRef(false); // Ref to sync state for event handlers
   const transcriptRef = useRef(""); 
-  const finalizedTranscriptRef = useRef("");
-  const isHeldRef = useRef(false);
-  const touchStartXRef = useRef(0);
+  const finalizedTranscriptRef = useRef(""); // Ref for mobile's continuous transcript
 
   // --- Core Chat & Speech Functions ---
   const speak = (text, lang = 'en-IN') => {
@@ -73,119 +70,91 @@ export default function Home() {
       setIsLoading(false);
     }
   };
-  
-  // --- Speech Recognition Logic ---
+
+  // --- Advanced Speech Recognition Logic ---
   useEffect(() => {
     isListeningRef.current = isListening;
-    transcriptRef.current = liveTranscript;
-  }, [isListening, liveTranscript]);
+    transcriptRef.current = userInput; // The text input will now serve as the live transcript
+  }, [isListening, userInput]);
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (!SpeechRecognition) {
+        console.error("Speech recognition not supported.");
+        return;
+    };
     
     const recog = new SpeechRecognition();
     recog.continuous = true;
     recog.interimResults = true;
-    
+    recog.lang = 'en-IN'; // Default to Hinglish transcription
+
     const isMobile = isMobileDevice();
+
     if (isMobile) {
+      console.log("Mobile device detected. Using mobile-specific logic.");
       recog.onresult = (event) => {
         let interim = "";
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           interim += event.results[i][0].transcript;
         }
-        setLiveTranscript(finalizedTranscriptRef.current + interim);
+        setUserInput(finalizedTranscriptRef.current + interim);
       };
+
       recog.onend = () => {
-        if (isListeningRef.current) {
+        if (isListeningRef.current) { // True if stopped by timeout, not manually
           finalizedTranscriptRef.current = transcriptRef.current + " ";
+          console.log("Mobile timeout detected, restarting...");
           recognitionRef.current.start();
         }
       };
-    } else {
+    } else { // Desktop Logic
+      console.log("Desktop device detected. Using desktop-specific logic.");
       recog.onresult = (event) => {
         let full = "";
         for (let i = 0; i < event.results.length; i++) {
           full += event.results[i][0].transcript;
         }
-        setLiveTranscript(full);
+        setUserInput(full);
       };
       recog.onend = () => setIsListening(false);
     }
     recognitionRef.current = recog;
   }, []);
 
-  // --- Control Functions (start, stop, cancel) ---
   const startListening = () => {
-    if (recognitionRef.current && !isListening) {
-      stopSpeaking();
-      setLiveTranscript(""); 
+    if (recognitionRef.current) {
+      setUserInput(""); 
       finalizedTranscriptRef.current = "";
-      recognitionRef.current.lang = 'en-IN';
       setIsListening(true);
       recognitionRef.current.start();
     }
   };
 
   const stopListeningAndSend = () => {
-    if (recognitionRef.current && isListening) {
-      setIsListening(false); 
+    if (recognitionRef.current) {
+      setIsListening(false); // Manually set to false so mobile onend doesn't restart
       recognitionRef.current.stop();
+      
       const finalTranscript = transcriptRef.current.trim();
       if (finalTranscript) {
         handleSendMessage(finalTranscript);
+      } else {
+        setUserInput(""); // Clear if empty
       }
-      setLiveTranscript("");
       finalizedTranscriptRef.current = "";
     }
   };
 
-  const cancelListening = () => {
-    if (recognitionRef.current && isListening) {
-      setIsListening(false);
-      recognitionRef.current.abort();
-      setLiveTranscript("");
-      finalizedTranscriptRef.current = "";
-    }
-  }
-
-  // --- Event Handlers for Desktop and Mobile ---
-  const handleMicClick = (event) => { // For Desktop: Toggle
+  const handleMicClick = (event) => {
     event.preventDefault();
     if (isListening) {
         stopListeningAndSend();
     } else {
         startListening();
     }
-  }
-
-  const handleTouchStart = (e) => { // For Mobile: Hold
-    e.preventDefault();
-    isHeldRef.current = true;
-    touchStartXRef.current = e.touches[0].clientX;
-    startListening();
   };
 
-  const handleTouchEnd = (e) => { // For Mobile: Release
-    e.preventDefault();
-    if (isHeldRef.current) {
-      stopListeningAndSend();
-    }
-    isHeldRef.current = false;
-  };
-  
-  const handleTouchMove = (e) => { // For Mobile: Swipe
-    if (!isHeldRef.current) return;
-    const touchX = e.touches[0].clientX;
-    const deltaX = touchStartXRef.current - touchX;
-    if (deltaX > 50) {
-      cancelListening();
-      isHeldRef.current = false;
-    }
-  };
-
-  // New handler for the speaker icon
   const handleSpeakerClick = (text, lang) => {
     if (isSpeaking) {
         stopSpeaking();
@@ -201,18 +170,11 @@ export default function Home() {
         <p className="text-sm sm:text-base">Your AI Financial Friend, Kuber.AI</p>
       </header>
 
-      {isListening && isMobileDevice() && (
-        <div className="fixed inset-x-0 bottom-24 flex justify-center items-center text-gray-500 animate-pulse">
-            &larr; Swipe left to cancel
-        </div>
-      )}
-
       <main className="flex-1 overflow-y-auto p-4 space-y-4">
         {chatHistory.map((msg, index) => (
           <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-md p-3 rounded-lg ${msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-white text-black shadow'}`}>
               <p>{msg.parts[0].text}</p>
-              {/* Add speaker button only for model responses */}
               {msg.role === 'model' && (
                 <button 
                   onClick={() => handleSpeakerClick(msg.parts[0].text, msg.parts[0].lang)} 
@@ -228,16 +190,16 @@ export default function Home() {
         {isLoading && ( <div className="flex justify-start"> <div className="max-w-lg p-3 rounded-lg bg-white text-black shadow"> <p className="animate-pulse">Kuber is thinking...</p> </div> </div> )}
       </main>
 
-      <footer className="p-4 bg-white border-t sticky bottom-0" onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+      <footer className="p-4 bg-white border-t sticky bottom-0">
         <div className="flex items-center max-w-2xl mx-auto">
-          <input type="text" value={isListening ? liveTranscript : userInput} onChange={(e) => setUserInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(userInput)} className="flex-1 p-3 border rounded-l-full focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ask or hold mic to speak..." disabled={isLoading} readOnly={isListening} />
+          <input type="text" value={userInput} onChange={(e) => setUserInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(userInput)} className="flex-1 p-3 border rounded-l-full focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ask or click the mic to speak..." disabled={isLoading}/>
           <button
-            onMouseDown={handleMicClick}
-            onTouchStart={handleTouchStart}
-            className={`p-3 px-4 rounded-none border-y border-l-0 border-gray-200 text-white text-2xl transition-transform ${isListening ? 'bg-red-500 scale-110' : 'bg-blue-600'} disabled:bg-gray-400`}
+            onMouseDown={handleMicClick} // Using onMouseDown for instant response on both platforms
+            onTouchStart={handleMicClick} // Fallback for mobile
+            className={`p-3 px-4 rounded-none border-y border-l-0 border-gray-200 text-white text-2xl transition-transform ${isListening ? 'bg-red-500 animate-pulse' : 'bg-blue-600'} disabled:bg-gray-400`}
             disabled={isLoading}
           >
-            🎤
+            {isListening ? '⏹️' : '🎤'}
           </button>
           <button
             onClick={() => handleSendMessage(userInput)}
