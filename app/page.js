@@ -1,102 +1,152 @@
-import Image from "next/image";
+// File: app/page.js (Mobile-Friendly Version)
+
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [userInput, setUserInput] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  
+  const recognitionRef = useRef(null);
+  const silenceTimeoutRef = useRef(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+  const speak = (text, lang = 'en-IN') => {
+    window.speechSynthesis.cancel(); 
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang; 
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleSendMessage = async (message) => {
+    if (isListening) {
+        recognitionRef.current?.stop();
+    }
+    if (!message.trim()) return;
+
+    setIsLoading(true);
+    const newHistory = [...chatHistory, { role: 'user', parts: [{ text: message }] }];
+    setChatHistory(newHistory);
+    setUserInput('');
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ history: chatHistory, message: message }),
+      });
+      const data = await response.json();
+      if (data.reply && data.language_code) {
+        setChatHistory([...newHistory, { role: 'model', parts: [{ text: data.reply }] }]);
+        speak(data.reply, data.language_code);
+      }
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  useEffect(() => {
+    if ('webkitSpeechRecognition' in window) {
+      const recognition = new window.webkitSpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-IN';
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onend = () => setIsListening(false);
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+      
+      recognition.onresult = (event) => {
+        clearTimeout(silenceTimeoutRef.current);
+        let finalTranscript = '';
+        for (let i = 0; i < event.results.length; i++) {
+            finalTranscript += event.results[i][0].transcript;
+        }
+        setUserInput(finalTranscript);
+
+        silenceTimeoutRef.current = setTimeout(() => {
+          recognition.stop();
+          handleSendMessage(finalTranscript);
+        }, 2500);
+      };
+      
+      recognitionRef.current = recognition;
+    } else {
+        console.warn("Speech recognition not supported in this browser.");
+    }
+  }, [chatHistory]);
+
+  const handleMicClick = () => {
+    if (isListening) {
+      clearTimeout(silenceTimeoutRef.current);
+      recognitionRef.current?.stop();
+      handleSendMessage(userInput);
+    } else {
+      window.speechSynthesis.cancel();
+      setUserInput('');
+      recognitionRef.current?.start();
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-gray-100 font-sans">
+      <header className="bg-blue-600 text-white p-4 text-center shadow-md">
+        {/* --- RESPONSIVE CHANGE HERE --- */}
+        <h1 className="text-2xl sm:text-3xl font-bold">Simplify Money Chatbot</h1>
+        <p className="text-sm sm:text-base">Your AI Financial Friend, Kuber.AI</p>
+      </header>
+
+      <main className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-4">
+        {chatHistory.map((msg, index) => (
+          <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-xs sm:max-w-lg p-3 rounded-lg ${msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-white text-black shadow'}`}>
+              <p>{msg.parts[0].text}</p>
+            </div>
+          </div>
+        ))}
+        {isLoading && (
+            <div className="flex justify-start">
+                <div className="max-w-xs sm:max-w-lg p-3 rounded-lg bg-white text-black shadow">
+                    <p className="animate-pulse">Kuber is thinking...</p>
+                </div>
+            </div>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+
+      <footer className="p-4 bg-white border-t">
+        <div className="flex items-center max-w-2xl mx-auto">
+          <input
+            type="text"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(userInput)}
+            className="flex-1 p-3 border rounded-l-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Ask a question..."
+            disabled={isLoading || isListening}
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+           <button 
+             onClick={handleMicClick}
+             className={`p-3 px-4 rounded-none border-y border-gray-200 text-white text-2xl transition-colors ${isListening ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-blue-600 hover:bg-blue-700'} disabled:bg-gray-400`}
+             disabled={isLoading}
+             aria-label="Use Microphone"
+            >
+             🎤
+           </button>
+           <button
+            onClick={() => handleSendMessage(userInput)}
+            disabled={isLoading || !userInput.trim()}
+            className="bg-blue-600 text-white p-3 px-4 sm:px-6 rounded-r-full hover:bg-blue-700 disabled:bg-gray-400"
+          >
+            Send
+          </button>
+        </div>
       </footer>
     </div>
   );
